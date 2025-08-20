@@ -63,7 +63,7 @@ def fetch_ohlcv_data_range(fyers, symbol, from_date, to_date, resolution="1D"):
     return pd.DataFrame()
 
 
-def fetch_and_store_all(symbols, years=5):
+def fetch_and_store_all(symbols, years=15):
     
     fyers = get_fyers_client()
     today = pd.Timestamp.now().normalize()

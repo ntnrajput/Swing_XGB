@@ -14,8 +14,9 @@ from features.swing_utils import (
     generate_swing_labels
 )
 from config import EMA_PERIODS, RSI_PERIOD, Vol_Avg_Period, Fib_Pivot_Window, AVG_VOL, AVG_PRICE
-from config import ATR_Period
+from config import ATR_Period, Strong_Low_Close, Strong_High_Close
 from utils.logger import get_logger
+
 
 logger = get_logger(__name__)
 
@@ -53,7 +54,21 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     
         # ➕ Swing Labels
         symbol_df = generate_swing_labels(symbol_df)
-        symbol_df = symbol_df.drop(columns=['max_return', 'min_return', 'risk_reward_ratio'])
+        # symbol_df = symbol_df.drop(columns=['max_return', 'min_return', 'risk_reward_ratio'])
+        
+        # symbol_df['strong_rejection'] = (
+        #     (symbol_df['close_compared_to_previous'] < Strong_Low_Close) |
+        #     (symbol_df['close_compared_to_previous'] > Strong_High_Close) |
+        #     (symbol_df['support_pct'] > 7) |
+        #     (symbol_df['resistance_pct'] < 30)
+        # ).astype(int)
+
+        symbol_df['strong_rejection'] = (
+            (symbol_df['close_compared_to_previous'] < Strong_Low_Close) |
+            (symbol_df['close_compared_to_previous'] > Strong_High_Close) |
+            (symbol_df['resistance_pct'] > 29)|
+            (symbol_df['sma50_price']> 1.2)
+        ).astype(int)
 
         all_dfs.append(symbol_df)
         logger.info(f" Features added for {symbol}")

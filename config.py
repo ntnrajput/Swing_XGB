@@ -43,27 +43,21 @@ MODEL_FILE = Path(f"models/{version}/enhanced_model_pipeline.pkl")
 LOG_FILE = Path("outputs/logs/system.log")
 
 #====Feature Columns====
-# FEATURE_COLUMNS = [
-#     'ema20_ema50',	'ema50_ema200',	'ema20_price',	'ema50_price',	'ema200_price',	'rsi',	'atr_pct',
-#     'obv',	'vol_change_5d', 'ret_1d',	'ret_3d',	'ret_5d',	'ret_10d', 'vol_5d',	
-#     'vol_10d',	'rsi_3_slope',	'rsi_5_slope',	'ema20_above_ema50', 'ema20_50_cross_up', 'ema20_50_cross_down',
-#     'close_position_in_range',	'gap_pct',	'fib_pivot_distance_pct',	'fib_r1_distance_pct',	'fib_r2_distance_pct',
-#     'fib_s1_distance_pct',	'fib_s2_distance_pct', 'is_bullish',	'is_bearish',	'body_to_range',	
-#     'upper_shadow_to_range',	'lower_shadow_to_range',	'is_doji',	'is_hammer',	'is_shooting_star',
-#     'close_compared_to_previous', 'bb_position', 'support_pct', 'resistance_pct', 'sma20_sma50', 'sma20_50_cross_up'
-# ]
-
 FEATURE_COLUMNS = [
-    'ema20_ema50',	'ema50_ema200',	'ema20_price',	'ema50_price',	'ema200_price',	'rsi',	'atr_pct',
+    'ema20_ema50',	'sma20_sma50','ema50_ema200', 'sma50_sma200',	'ema20_price',	'ema50_price',	'ema200_price',
+    'sma20_price','sma50_price','sma200_price','rsi',	'atr_pct',
     'obv',	'vol_change_5d', 'ret_1d',	'ret_3d',	'ret_5d',	'ret_10d', 'vol_5d',	
-    'vol_10d',	'rsi_3_slope',	'rsi_5_slope',	'ema20_above_ema50', 
-    'close_position_in_range',	'gap_pct',	'fib_pivot_distance_pct',	'is_bullish',	'is_bearish','fib_r1_distance_pct',	'fib_r2_distance_pct',
-    'fib_s1_distance_pct',	'fib_s2_distance_pct', 	'body_to_range', 'is_doji',	'is_hammer',	'is_shooting_star',
-    'upper_shadow_to_range',	'lower_shadow_to_range',	
-    'close_compared_to_previous', 'bb_position', 'support_pct', 'resistance_pct', 'sma20_sma50', 
+    'vol_10d',	'rsi_3_slope',	'rsi_5_slope',	'ema20_above_ema50', 'ema20_50_cross_up', 'ema20_50_cross_down',
+    'close_position_in_range',	'gap_pct',	'fib_pivot_distance_pct',	'fib_r1_distance_pct',	'fib_r2_distance_pct',
+    'fib_s1_distance_pct',	'fib_s2_distance_pct', 'is_bullish',	'is_bearish',	'body_to_range',	
+    'upper_shadow_to_range',	'lower_shadow_to_range',	'is_doji',	'is_hammer',	'is_shooting_star',
+    'spinning_top','marubozu_bull','marubozu_bear','three_white_soldiers','three_black_crows', 
+    'morning_star', 'evening_star', 'bullish_harami','bearish_harami', 'pattern_strength',
+    'close_compared_to_previous', 'bb_position', 'support_pct', 'resistance_pct',  'sma20_50_cross_up'
 ]
 
-CONFIDENCE_THRESHOLD = 0.78
+
+CONFIDENCE_THRESHOLD = 0.6
 
 # old model
 # 0.7   452  30.5  -6
@@ -78,4 +72,11 @@ CONFIDENCE_THRESHOLD = 0.78
 # 0.76  145   13.81  -1.07
 # 0.77  75   9.14  -1.11
 
+
+# Latest v1
+# 0.6  327 10.16 -9.27
+# 0.65 236 16.3 -8.65
+# 0.7 168 -0.46 -8.14
+# 0.75 97 5 -4.17
+# 0.8 43 1.3 -4.32
 

@@ -7,7 +7,7 @@ from data.fetch_token import launch_browser_login
 from data.fetch_stock_list import load_symbols
 from data.fetch_historical_data import fetch_and_store_all
 from features.engineer_features import add_technical_indicators
-from model.train_model import train_model
+from model.train_model_old import train_model
 from model.backtest_model import run_backtest
 # from model.daily_backtest_model import run_backtest
 from strategy.screener import run_screener
@@ -95,6 +95,7 @@ def main():
         df = add_technical_indicators(df)
         df.to_csv('data_with_feature.csv')
         df = df[df['date'] > pd.to_datetime("2021-08-01")]
+        df = df[df['ema50_ema200'] > 1.02]
         print(df['target_hit'].value_counts())  # absolute counts
         print(df['target_hit'].value_counts(normalize=True))
         if 'target_hit' not in df.columns:
@@ -107,15 +108,15 @@ def main():
         logger.info(" Starting backtest...")
         df = pd.read_parquet(HISTORICAL_DATA_FILE)
         df['date'] = pd.to_datetime(df['date'])
-        df = df[df['date'] > pd.to_datetime("2024-04-15")]
+        df = df[df['date'] > pd.to_datetime("2011-04-15")]
         # df = df[df['date'] < pd.to_datetime("2025-07-15")]
         
         filtered_symbols = filter_symbols(df)
         # Filter original df to keep only those symbols
         df = df[df['symbol'].isin(filtered_symbols)]
         df = add_technical_indicators(df)
+        df = df[df['date'] > pd.to_datetime("2025-02-01")]
         df.to_csv('feature_backtest.csv')
-        columns_to_drop =[]
         
         # Prepare backtest parameters
         backtest_params = {

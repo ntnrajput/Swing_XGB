@@ -215,90 +215,271 @@ class SwingTradingBacktester:
         self.total_portfolio_value = self.cash + position_value
         return self.total_portfolio_value
     
+    # def run_backtest(self, df, holding_period=21, stop_loss_pct=0.05, take_profit_pct=0.15):
+    #     """
+    #     Run complete backtest simulation
+        
+    #     Args:
+    #         df: DataFrame with OHLCV data and signals
+    #         holding_period: Days to hold position
+    #         stop_loss_pct: Stop loss percentage
+    #         take_profit_pct: Take profit percentage
+    #     """
+    #     logger.info(" Starting backtest simulation...")
+    #     df = self.prepare_features(df)
+    #     if df is None:
+    #         logger.error("Features not prepared properly")
+    #         return None
+            
+    #     # Generate signals
+    #     df = self.generate_signals(df)
+    #     if df is None:
+    #         logger.error("Signal generation failed")
+    #         return None
+        
+    #     # Sort by date for proper time series processing
+    #     df = df.sort_values(['date', 'symbol']).reset_index(drop=True)
+        
+    #     # Track daily portfolio values
+    #     daily_portfolio = {}
+        
+    #     for i, row in df.iterrows():
+    #         date = row['date']
+    #         symbol = row['symbol']
+    #         current_price = row['close']
+            
+    #         # Update daily portfolio tracking
+    #         if date not in daily_portfolio:
+    #             daily_portfolio[date] = {}
+    #         daily_portfolio[date][symbol] = current_price
+            
+    #         # Process buy signals
+    #         if row['strong_signal'] == 1 and row['signal_confidence'] > CONFIDENCE_THRESHOLD and row['strong_rejection']!= 1 and symbol not in self.current_positions:
+    #         # if row['strong_signal'] == 1 and row['signal_confidence'] > CONFIDENCE_THRESHOLD and row['strong_rejection']!= 1 :
+    #             confidence = row['signal_confidence']
+    #             volatility = row.get('volatility_20', None)
+                
+    #             shares = self.calculate_position_size(current_price, confidence, volatility)
+                
+    #             if self.execute_trade(symbol, 'BUY', current_price, shares, date, confidence):
+    #                 logger.info(f"BUY {shares} shares of {symbol} at ${current_price:.2f} on {date}")
+            
+    #         # Process sell signals (stop loss, take profit, holding period)
+    #         elif symbol in self.current_positions:
+    #             position = self.current_positions[symbol]
+    #             entry_price = position['avg_price']
+    #             entry_date = position['entry_date']
+                
+    #             # Calculate current P&L
+    #             current_pnl_pct = (current_price - entry_price) / entry_price
+                
+    #             # Calculate holding period
+    #             holding_days = (pd.to_datetime(date) - pd.to_datetime(entry_date)).days
+                
+    #             # Sell conditions
+    #             sell_reason = None
+    #             if current_pnl_pct <= -stop_loss_pct:
+    #                 sell_reason = "Stop Loss"
+    #             elif current_pnl_pct >= take_profit_pct:
+    #                 sell_reason = "Take Profit"
+    #             elif holding_days >= holding_period:
+    #                 sell_reason = "Holding Period"
+    #             if sell_reason:
+    #                 shares_to_sell = position['shares']
+    #                 if self.execute_trade(symbol, 'SELL', current_price, shares_to_sell, date):
+    #                     logger.info(f" SELL {shares_to_sell} shares of {symbol} at ${current_price:.2f} on {date} - {sell_reason}")
+        
+    #     # Calculate final portfolio value
+    #     final_prices = {}
+    #     for symbol in self.current_positions.keys():
+    #         final_data = df[df['symbol'] == symbol].iloc[-1]
+    #         final_prices[symbol] = final_data['close']
+        
+    #     final_portfolio_value = self.update_portfolio_value(final_prices)
+        
+    #     # Calculate daily portfolio history
+    #     for date, prices in daily_portfolio.items():
+    #         portfolio_value = self.update_portfolio_value(prices)
+    #         self.portfolio_history.append({
+    #             'date': date,
+    #             'portfolio_value': portfolio_value,
+    #             'cash': self.cash,
+    #             'positions_value': portfolio_value - self.cash
+    #         })
+        
+    #     logger.info(f" Backtest completed. Final portfolio value: ${final_portfolio_value:,.2f}")
+        
+    #     return self.calculate_performance_metrics()
+
     def run_backtest(self, df, holding_period=21, stop_loss_pct=0.05, take_profit_pct=0.15):
         """
-        Run complete backtest simulation
-        
+        Run complete backtest simulation (preserves original functionality).
+        Exits happen on the day the CLOSE meets or crosses stop-loss or take-profit; otherwise
+        a time exit happens after `holding_period` days.
+
         Args:
-            df: DataFrame with OHLCV data and signals
+            df: DataFrame with OHLCV data and signals (must include 'date','symbol','open','high','low','close', 
+                'strong_signal', 'signal_confidence', 'strong_rejection' as used in generate_signals)
             holding_period: Days to hold position
-            stop_loss_pct: Stop loss percentage
-            take_profit_pct: Take profit percentage
+            stop_loss_pct: Stop loss percentage (e.g. 0.05 = 5% loss)
+            take_profit_pct: Take profit percentage (e.g. 0.15 = 15% gain)
         """
-        logger.info(" Starting backtest simulation...")
+        logger.info("Starting backtest simulation...")
         df = self.prepare_features(df)
         if df is None:
-            logger.error("Features not prepared properly")
+            logger.error("❌ Features not prepared properly")
             return None
-            
+
         # Generate signals
         df = self.generate_signals(df)
         if df is None:
-            logger.error("Signal generation failed")
+            logger.error("❌ Signal generation failed")
             return None
-        
-        # Sort by date for proper time series processing
+
+        # Ensure correct sort order for time-series processing
         df = df.sort_values(['date', 'symbol']).reset_index(drop=True)
-        
+
         # Track daily portfolio values
         daily_portfolio = {}
-        
+
+        # container for concise completed-trade summaries (entry/exit pairing + exit_date)
+        # This is in addition to self.trades (which stores every BUY/SELL event)
+        if not hasattr(self, 'completed_trades'):
+            self.completed_trades = []
+
         for i, row in df.iterrows():
             date = row['date']
             symbol = row['symbol']
-            current_price = row['close']
             
+            open_price = row.get('open', row.get('Open', np.nan))
+            high = row.get('high', row.get('High', np.nan))
+            low = row.get('low', row.get('Low', np.nan))
+            close = row.get('close', row.get('Close', np.nan))
+            
+
             # Update daily portfolio tracking
             if date not in daily_portfolio:
                 daily_portfolio[date] = {}
-            daily_portfolio[date][symbol] = current_price
-            
-            # Process buy signals
-            if row['strong_signal'] == 1 and row['signal_confidence'] > CONFIDENCE_THRESHOLD and row['strong_rejection']!= 1 and symbol not in self.current_positions:
-            # if row['strong_signal'] == 1 and row['signal_confidence'] > CONFIDENCE_THRESHOLD and row['strong_rejection']!= 1 :
-                confidence = row['signal_confidence']
+            daily_portfolio[date][symbol] = close
+
+            # --------------------
+            # Buy Signals (same logic as original)
+            # --------------------
+            if (
+                row.get('strong_signal', 0) == 1
+                and row.get('signal_confidence', 0.0) > CONFIDENCE_THRESHOLD
+                and row.get('strong_rejection', 0) != 1
+                and symbol not in self.current_positions
+            ):
+                confidence = row.get('signal_confidence', None)
                 volatility = row.get('volatility_20', None)
-                
-                shares = self.calculate_position_size(current_price, confidence, volatility)
-                
-                if self.execute_trade(symbol, 'BUY', current_price, shares, date, confidence):
-                    logger.info(f"BUY {shares} shares of {symbol} at ${current_price:.2f} on {date}")
-            
-            # Process sell signals (stop loss, take profit, holding period)
+
+                shares = self.calculate_position_size(close, confidence, volatility)
+
+                if self.execute_trade(symbol, 'BUY', close, shares, date, confidence):
+                    xy = 1
+                    # logger.info(f"✅ BUY {shares} shares of {symbol} at ${close:.2f} on {date}")
+                    
+
+            # --------------------
+            # Sell Conditions (preserve original logic but ensure immediate exit based on CLOSE)
+            # --------------------
             elif symbol in self.current_positions:
                 position = self.current_positions[symbol]
                 entry_price = position['avg_price']
                 entry_date = position['entry_date']
-                
-                # Calculate current P&L
-                current_pnl_pct = (current_price - entry_price) / entry_price
-                
-                # Calculate holding period
+                shares_held = position['shares']
+
+                # Compute stop and take-profit levels (based on entry_price)
+                stop_loss_price = entry_price * (1 - stop_loss_pct)
+                take_profit_price = entry_price * (1 + take_profit_pct)
+
+                # Holding period in integer days
                 holding_days = (pd.to_datetime(date) - pd.to_datetime(entry_date)).days
-                
-                # Sell conditions
+
                 sell_reason = None
-                if current_pnl_pct <= -stop_loss_pct:
+                exit_price = None
+
+                # 1) If today's CLOSE is <= stop_loss_price -> exit today at today's CLOSE
+                if close <= stop_loss_price:
+                    exit_price = close
                     sell_reason = "Stop Loss"
-                elif current_pnl_pct >= take_profit_pct:
+                    print('selling',symbol,exit_price)
+                    
+                # 2) Else if today's CLOSE is >= take_profit_price -> exit today at today's CLOSE
+                elif close >= take_profit_price:
+                    exit_price = close
                     sell_reason = "Take Profit"
+
+                # 3) Else if max holding days reached -> exit today at close
                 elif holding_days >= holding_period:
+                    exit_price = close
                     sell_reason = "Holding Period"
+
+                # Execute sell if required
                 if sell_reason:
-                    shares_to_sell = position['shares']
-                    if self.execute_trade(symbol, 'SELL', current_price, shares_to_sell, date):
-                        logger.info(f" SELL {shares_to_sell} shares of {symbol} at ${current_price:.2f} on {date} - {sell_reason}")
-        
-        # Calculate final portfolio value
+                    # Save entry info (before execute_trade mutates / possibly deletes position)
+                    saved_entry_price = entry_price
+                    saved_entry_date = entry_date
+                    saved_shares = shares_held
+
+                    # Compute trade-level costs & pnl (same formula execute_trade uses)
+                    trade_value = saved_shares * exit_price
+                    commission_cost = trade_value * self.commission
+                    slippage_cost = trade_value * self.slippage
+                    total_cost = commission_cost + slippage_cost
+                    pnl = (exit_price - saved_entry_price) * saved_shares - total_cost
+                    pnl_pct = (exit_price - saved_entry_price) / saved_entry_price * 100
+
+                    # Execute the SELL using existing function (which will also append a SELL row to self.trades)
+                    sold = self.execute_trade(symbol, 'SELL', exit_price, saved_shares, date)
+
+                    if sold:
+                        # 1) Tag the last SELL trade in self.trades with explicit exit_date (safe-search recent entries)
+                        if len(self.trades) > 0:
+                            for t in reversed(self.trades):
+                                if t.get('action') == 'SELL' and t.get('symbol') == symbol and 'exit_date' not in t:
+                                    t['exit_date'] = date
+                                    # Also add computed pnl/pnl_pct if not present (execute_trade should already add these)
+                                    if 'pnl' not in t:
+                                        t['pnl'] = pnl
+                                    if 'pnl_pct' not in t:
+                                        t['pnl_pct'] = pnl_pct
+                                    break
+
+                        # 2) Add a paired/completed-trade summary (entry <-> exit)
+                        self.completed_trades.append({
+                            'symbol': symbol,
+                            'entry_date': saved_entry_date,
+                            'exit_date': date,
+                            'entry_price': saved_entry_price,
+                            'exit_price': exit_price,
+                            'shares': saved_shares,
+                            'pnl': float(pnl),
+                            'pnl_pct': float(pnl_pct),
+                            'holding_days': holding_days,
+                            'exit_reason': sell_reason
+                        })
+
+                        # logger.info(f"❌ SELL {saved_shares} shares of {symbol} at ${exit_price:.2f} on {date} - {sell_reason}")
+
+        # --------------------
+        # Final Portfolio Value (preserve original logic)
+        # --------------------
         final_prices = {}
-        for symbol in self.current_positions.keys():
+        for symbol in list(self.current_positions.keys()):
+            # If symbol still in positions, fetch last available price from df
             final_data = df[df['symbol'] == symbol].iloc[-1]
             final_prices[symbol] = final_data['close']
-        
+
         final_portfolio_value = self.update_portfolio_value(final_prices)
-        
-        # Calculate daily portfolio history
-        for date, prices in daily_portfolio.items():
+
+        # --------------------
+        # Daily portfolio history (preserve original behavior)
+        # --------------------
+        # Ensure deterministic order (sort dates) when converting dict to history
+        for date in sorted(daily_portfolio.keys()):
+            prices = daily_portfolio[date]
             portfolio_value = self.update_portfolio_value(prices)
             self.portfolio_history.append({
                 'date': date,
@@ -306,9 +487,10 @@ class SwingTradingBacktester:
                 'cash': self.cash,
                 'positions_value': portfolio_value - self.cash
             })
-        
-        logger.info(f" Backtest completed. Final portfolio value: ${final_portfolio_value:,.2f}")
-        
+
+        logger.info(f"🏁 Backtest completed. Final portfolio value: ${final_portfolio_value:,.2f}")
+
+        # Return results using the existing metrics calculator
         return self.calculate_performance_metrics()
     
     def calculate_performance_metrics(self):

@@ -184,13 +184,11 @@ def train_model(df_all, available_features=None, model_params=None):
         if model_params is None:
             # Wider but reasonable ranges for tabular financial data
             param_dist = {
-                'n_estimators': [300, 500, 800],
-                'max_depth': [3, 5, 7, 9],
-                'learning_rate': [0.01, 0.03, 0.05, 0.1],
-                'subsample': [0.6, 0.8, 1.0],
-                'colsample_bytree': [0.6, 0.8, 1.0],
-                'min_child_weight': [1, 3, 5, 7],
-                'gamma': [0, 0.5, 1, 2]
+                'n_estimators': [100, 200, 300],
+                'max_depth': [3, 5, 7],
+                'learning_rate': [0.01, 0.03, 0.05],
+                'subsample': [0.7, 0.8, 1.0],
+                'colsample_bytree': [0.7, 0.8, 1.0]
             }
             search_cv = RandomizedSearchCV
             search_params = {

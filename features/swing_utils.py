@@ -230,10 +230,9 @@ import numpy as np
 
 def add_nearest_sr(df, lookback=21, tolerance=0.002):
     """
-    Optimized support/resistance detection without future leakage.
-    For each date, finds nearest levels from the last `lookback` candles.
-    Returns:
-        df with added columns: nearest_support, support_pct, nearest_resistance, resistance_pct
+    Support/Resistance detection with fallback:
+    - Primary: nearest SR from local minima/maxima in lookback window
+    - Fallback: if no SR found (all-time high/low), extrapolate based on last low/high
     """
 
     lows = df['low'].values
@@ -250,14 +249,13 @@ def add_nearest_sr(df, lookback=21, tolerance=0.002):
         if i < lookback:
             continue  # Not enough history
 
-        # Lookback window without future data
-        win_lows = lows[i-lookback:i+1]
-        win_highs = highs[i-lookback:i+1]
+        win_lows = lows[i - lookback:i + 1]
+        win_highs = highs[i - lookback:i + 1]
 
         # --- Detect supports (local minima) ---
         support_candidates = []
-        for j in range(2, len(win_lows)-2):
-            if win_lows[j] < win_lows[j-1] and win_lows[j] < win_lows[j+1]:
+        for j in range(2, len(win_lows) - 2):
+            if win_lows[j] < win_lows[j - 1] and win_lows[j] < win_lows[j + 1]:
                 val = win_lows[j]
                 touches = (np.abs(win_lows - val) / val < tolerance).sum()
                 if not any(abs(val - s[0]) / s[0] < tolerance for s in support_candidates):
@@ -265,29 +263,44 @@ def add_nearest_sr(df, lookback=21, tolerance=0.002):
 
         # --- Detect resistances (local maxima) ---
         resistance_candidates = []
-        for j in range(2, len(win_highs)-2):
-            if win_highs[j] > win_highs[j-1] and win_highs[j] > win_highs[j+1]:
+        for j in range(2, len(win_highs) - 2):
+            if win_highs[j] > win_highs[j - 1] and win_highs[j] > win_highs[j + 1]:
                 val = win_highs[j]
                 touches = (np.abs(win_highs - val) / val < tolerance).sum()
                 if not any(abs(val - r[0]) / r[0] < tolerance for r in resistance_candidates):
                     resistance_candidates.append((val, touches))
 
-        # --- Get nearest SR (consider both supports & resistances as levels) ---
-        all_levels = support_candidates + resistance_candidates  # concatenate lists
+        all_levels = support_candidates + resistance_candidates
 
-        # Nearest "support": closest level strictly below the close
+        # Nearest support (below close)
         below_close = [lvl for lvl in all_levels if lvl[0] < closes[i]]
         if below_close:
-            nearest_below = max(below_close, key=lambda x: x[0])  # highest level below
+            nearest_below = max(below_close, key=lambda x: x[0])
             nearest_supports[i] = nearest_below[0]
             support_pct[i] = (closes[i] - nearest_below[0]) / closes[i] * 100
+        else:
+            # Fallback support (extrapolation)
+            if i > 0:
+                last_low = lows[i - 1]
+                cur_low = lows[i]
+                diff = last_low - cur_low
+                nearest_supports[i] = cur_low - diff
+                support_pct[i] = (closes[i] - nearest_supports[i]) / closes[i] * 100
 
-        # Nearest "resistance": closest level strictly above the close
+        # Nearest resistance (above close)
         above_close = [lvl for lvl in all_levels if lvl[0] > closes[i]]
         if above_close:
-            nearest_above = min(above_close, key=lambda x: x[0])  # lowest level above
+            nearest_above = min(above_close, key=lambda x: x[0])
             nearest_resistances[i] = nearest_above[0]
             resistance_pct[i] = (nearest_above[0] - closes[i]) / closes[i] * 100
+        else:
+            # Fallback resistance (extrapolation)
+            if i > 0:
+                last_high = highs[i - 1]
+                cur_high = highs[i]
+                diff = cur_high - last_high
+                nearest_resistances[i] = cur_high + diff
+                resistance_pct[i] = (nearest_resistances[i] - closes[i]) / closes[i] * 100
 
     df['nearest_support'] = nearest_supports
     df['support_pct'] = support_pct

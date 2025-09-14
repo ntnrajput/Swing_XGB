@@ -16,7 +16,8 @@ from features.swing_utils import (
 from config import EMA_PERIODS, RSI_PERIOD, Vol_Avg_Period, Fib_Pivot_Window, AVG_VOL, AVG_PRICE
 from config import ATR_Period, Strong_Low_Close, Strong_High_Close
 from utils.logger import get_logger
-
+from features.macd import add_macd_features
+from features.advance_feature import calculate_advanced_features
 
 logger = get_logger(__name__)
 
@@ -54,6 +55,7 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     
         # ➕ Swing Labels
         symbol_df = generate_swing_labels(symbol_df)
+        symbol_df = calculate_advanced_features(symbol_df)
         # symbol_df = symbol_df.drop(columns=['max_return', 'min_return', 'risk_reward_ratio'])
         
         # symbol_df['strong_rejection'] = (
@@ -66,12 +68,13 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         symbol_df['strong_rejection'] = (
             (symbol_df['close_compared_to_previous'] < Strong_Low_Close) |
             (symbol_df['close_compared_to_previous'] > Strong_High_Close) |
-            (symbol_df['resistance_pct'] > 29)|
-            (symbol_df['sma50_price']> 1.2)
+            (symbol_df['ema50_ema200']>0.9)
+            # ((symbol_df['ema20']/symbol_df['ema200'])>0.9)|
+            # (symbol_df['rsi']<20)
         ).astype(int)
 
         all_dfs.append(symbol_df)
-        logger.info(f" Features added for {symbol}")
+        # logger.info(f" Features added for {symbol}")
         # pd.concat(all_dfs).to_csv('features.csv', index=False)
     return pd.concat(all_dfs, ignore_index=True)
 
@@ -107,30 +110,6 @@ def calculate_rolling_fib_pivots(df, window):
     
     return df
 
-def add_macd(df: pd.DataFrame) -> pd.DataFrame:
-    fast_length = 12
-    slow_length = 26
-    signal_length = 9
-
-    def compute_macd(group):
-        close = group['close']
-        ema_fast = close.ewm(span=fast_length, adjust=False).mean()
-        ema_slow = close.ewm(span=slow_length, adjust=False).mean()
-        macd = ema_fast - ema_slow
-        macd_signal = macd.ewm(span=signal_length, adjust=False).mean()
-        macd_hist = macd - macd_signal
-        macd_crossover = macd > macd_signal
-        macd_cross_signal = macd_crossover.ne(macd_crossover.shift(1))
-        macd_signal_type = macd_crossover & macd_cross_signal
-        macd_signal_type = macd_signal_type.map({True: 'buy'}).fillna(
-            macd_cross_signal.map({True: 'sell'}).fillna(''))
-
-        macd_ls_signal =  (macd_crossover).astype(int)
-        group['macd_ls_signal'] = macd_ls_signal
-        
-        return group
-    return df.groupby('symbol', group_keys=False).apply(compute_macd)
-
 def add_basic_indicators_vectorized(df: pd.DataFrame, close: np.ndarray, high: np.ndarray, low: np.ndarray, open_price: np.ndarray, volume:np.ndarray) -> pd.DataFrame:
     """Add basic indicators using vectorized operations."""
     # EMA calculations (vectorized)
@@ -153,7 +132,7 @@ def add_basic_indicators_vectorized(df: pd.DataFrame, close: np.ndarray, high: n
     # RSI and ATR
     df["rsi"] = calculate_rsi(df["close"], RSI_PERIOD)
     df['atr'] = calculate_atr(df, ATR_Period)  # keep atr column for evaluation; we'll add atr_pct
-    df['atr_pct'] = df['atr'] / df['close']
+    df['atr_pct'] = (df['atr'] / df['close'])*100
     if 'volume' in df.columns:
         vol = df['volume'].fillna(0)
         df['vol_by_avg_vol'] = vol / vol.rolling(Vol_Avg_Period, min_periods=1).mean()
@@ -190,7 +169,7 @@ def add_basic_indicators_vectorized(df: pd.DataFrame, close: np.ndarray, high: n
     df['gap_pct'] = (df['open'] - df['close'].shift(1)) / df['close'].shift(1)
 
     df = calculate_rolling_fib_pivots(df,window=Fib_Pivot_Window)
-    df = add_macd(df)
+    df = add_macd_features(df)
     return df
 
 def calculate_obv(close: pd.Series, volume: pd.Series) -> pd.Series:

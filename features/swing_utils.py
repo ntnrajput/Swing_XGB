@@ -9,6 +9,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
+
 def calculate_rsi(prices, period=14):
     """Calculate RSI with improved smoothing."""
     delta = prices.diff()
@@ -225,8 +226,7 @@ def cluster_levels(levels, price_threshold=0.01):
     
     return clustered
 
-import pandas as pd
-import numpy as np
+
 
 def add_nearest_sr(df, lookback=21, tolerance=0.002):
     """

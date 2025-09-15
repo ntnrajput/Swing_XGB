@@ -76,6 +76,7 @@ def main():
 
     if args.auth:
         launch_browser_login()
+        
 
     elif args.token:
         logger.info("Generating access token from auth code...")
@@ -90,12 +91,12 @@ def main():
         df = pd.read_parquet(HISTORICAL_DATA_FILE)
         df['date'] = pd.to_datetime(df['date'])
         df = df[df['date'] < pd.to_datetime("2025-01-31")]
+        print(df)
         filtered_symbols = filter_symbols(df)
         df = df[df['symbol'].isin(filtered_symbols)]
         df = add_technical_indicators(df)
         df.to_csv('data_with_feature.csv')
-        df = df[df['date'] > pd.to_datetime("2021-08-01")]
-        df = df[df['ema50_ema200'] > 1.02]
+        df = df[df['ema50_ema200'] > 0.9]
         print(df['target_hit'].value_counts())  # absolute counts
         print(df['target_hit'].value_counts(normalize=True))
         if 'target_hit' not in df.columns:

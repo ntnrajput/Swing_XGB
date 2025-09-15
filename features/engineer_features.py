@@ -18,6 +18,7 @@ from config import ATR_Period, Strong_Low_Close, Strong_High_Close
 from utils.logger import get_logger
 from features.macd import add_macd_features
 from features.advance_feature import calculate_advanced_features
+from features.enchanced_features import add_enhanced_features
 
 logger = get_logger(__name__)
 
@@ -57,13 +58,9 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         symbol_df = generate_swing_labels(symbol_df)
         symbol_df = calculate_advanced_features(symbol_df)
         # symbol_df = symbol_df.drop(columns=['max_return', 'min_return', 'risk_reward_ratio'])
+
+        symbol_df = add_enhanced_features(symbol_df)
         
-        # symbol_df['strong_rejection'] = (
-        #     (symbol_df['close_compared_to_previous'] < Strong_Low_Close) |
-        #     (symbol_df['close_compared_to_previous'] > Strong_High_Close) |
-        #     (symbol_df['support_pct'] > 7) |
-        #     (symbol_df['resistance_pct'] < 30)
-        # ).astype(int)
 
         symbol_df['strong_rejection'] = (
             (symbol_df['close_compared_to_previous'] < Strong_Low_Close) |
@@ -72,6 +69,8 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
             # ((symbol_df['ema20']/symbol_df['ema200'])>0.9)|
             # (symbol_df['rsi']<20)
         ).astype(int)
+
+
 
         all_dfs.append(symbol_df)
         # logger.info(f" Features added for {symbol}")
@@ -181,3 +180,4 @@ def calculate_obv(close: pd.Series, volume: pd.Series) -> pd.Series:
 def rolling_slope(series: pd.Series, period: int) -> pd.Series:
     # Simple slope approximation: (value_now - value_n_steps_ago) / (period-1)
     return (series - series.shift(period-1)) / (period-1)
+

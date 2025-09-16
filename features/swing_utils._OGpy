@@ -1,3 +1,4 @@
+
 # features/swing_utils.py
 
 import pandas as pd
@@ -6,6 +7,8 @@ from scipy.signal import argrelextrema
 from scipy.stats import linregress
 import warnings
 warnings.filterwarnings('ignore')
+
+
 
 def calculate_rsi(prices, period=14):
     """Calculate RSI with improved smoothing."""
@@ -184,8 +187,6 @@ def calculate_pattern_strength(df):
     
     return pattern_strength
 
-
-
 def cluster_levels(levels, price_threshold=0.01):
     """
     Cluster support/resistance levels that are within a certain price threshold.
@@ -225,6 +226,8 @@ def cluster_levels(levels, price_threshold=0.01):
     
     return clustered
 
+
+
 def add_nearest_sr(df, lookback=21, tolerance=0.002):
     """
     Support/Resistance detection with fallback:
@@ -241,7 +244,6 @@ def add_nearest_sr(df, lookback=21, tolerance=0.002):
     support_pct = np.full(n, np.nan)
     nearest_resistances = np.full(n, np.nan)
     resistance_pct = np.full(n, np.nan)
-    hh_hl = np.full(n, np.nan)  # Higher highs higher lows indicator
 
     for i in range(n):
         if i < lookback:
@@ -249,19 +251,6 @@ def add_nearest_sr(df, lookback=21, tolerance=0.002):
 
         win_lows = lows[i - lookback:i + 1]
         win_highs = highs[i - lookback:i + 1]
-
-        # --- Compare last high to second last high and last low to second last low ---
-        if len(win_highs) >= 2 and len(win_lows) >= 2:
-            last_high = win_highs[-1]        # Last high in window
-            second_last_high = win_highs[-2] # Second last high in window
-            last_low = win_lows[-1]          # Last low in window  
-            second_last_low = win_lows[-2]   # Second last low in window
-            
-            # Assign 1 if last high > second last high AND last low > second last low
-            if last_high > second_last_high and last_low > second_last_low:
-                hh_hl[i] = 1
-            else:
-                hh_hl[i] = 0
 
         # --- Detect supports (local minima) ---
         support_candidates = []
@@ -317,7 +306,6 @@ def add_nearest_sr(df, lookback=21, tolerance=0.002):
     df['support_pct'] = support_pct
     df['nearest_resistance'] = nearest_resistances
     df['resistance_pct'] = resistance_pct
-    df['hh_hl'] = hh_hl
 
     return df
 

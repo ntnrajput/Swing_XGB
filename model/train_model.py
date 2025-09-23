@@ -193,7 +193,7 @@ def train_model(df_all, available_features=None, model_params=None):
             search_cv = RandomizedSearchCV
             search_params = {
                 'param_distributions': param_dist,
-                'n_iter': 30,
+                'n_iter': 20,
                 'cv': 3,
                 'scoring': 'average_precision',
                 'n_jobs': -1,

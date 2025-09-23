@@ -185,141 +185,307 @@ def calculate_pattern_strength(df):
     return pattern_strength
 
 
-
-def cluster_levels(levels, price_threshold=0.01):
+def detect_enhanced_swings(df, 
+                          threshold_percent=12.0, 
+                          lookback_window=3, 
+                          lookahead_window=0,
+                          min_time_gap=1, 
+                          min_price_distance_pct=5.0):
     """
-    Cluster support/resistance levels that are within a certain price threshold.
-    Args:
-        levels: List of (idx, price, touches) tuples.
-        price_threshold: Fractional threshold (e.g., 0.01 for 1%) for clustering levels.
-    Returns:
-        List of clustered (idx, price, touches) tuples.
-    """
-    if not levels:
-        return []
-    # Sort by price
-    levels = sorted(levels, key=lambda x: x[1])
-    clustered = []
-    cluster = [levels[0]]
+    Enhanced swing detection with advanced filtering logic.
     
-    for lvl in levels[1:]:
-        prev_price = cluster[-1][1]
-        if abs(lvl[1] - prev_price) / prev_price < price_threshold:
-            cluster.append(lvl)
-        else:
-            # Merge cluster
-            idxs, prices, touches = zip(*cluster)
-            avg_idx = int(np.mean(idxs))
-            avg_price = np.mean(prices)
-            total_touches = int(np.sum(touches))
-            clustered.append((avg_idx, avg_price, total_touches))
-            cluster = [lvl]
+    Parameters:
+    - threshold_percent: Minimum percentage move required to confirm a swing
+    - lookback_window: Must be highest/lowest in last N bars
+    - lookahead_window: Must remain highest/lowest for next N bars  
+    - min_time_gap: Minimum bars between consecutive swings
+    - min_price_distance_pct: Minimum price difference between consecutive same-type swings
     
-    # Merge last cluster
-    if cluster:
-        idxs, prices, touches = zip(*cluster)
-        avg_idx = int(np.mean(idxs))
-        avg_price = np.mean(prices)
-        total_touches = int(np.sum(touches))
-        clustered.append((avg_idx, avg_price, total_touches))
+    Logic Improvements:
+    1. Local extremes: Must be highest/lowest in lookback+lookahead window
+    2. Time gap: Minimum spacing between swings
+    3. Price distance: Meaningful breakout from previous swing levels
+    """
     
-    return clustered
-
-def add_nearest_sr(df, lookback=21, tolerance=0.002):
-    """
-    Support/Resistance detection with fallback:
-    - Primary: nearest SR from local minima/maxima in lookback window
-    - Fallback: if no SR found (all-time high/low), extrapolate based on last low/high
-    """
-
-    lows = df['low'].values
-    highs = df['high'].values
-    closes = df['close'].values
+    result_df = df.copy()
     n = len(df)
-
-    nearest_supports = np.full(n, np.nan)
-    support_pct = np.full(n, np.nan)
-    nearest_resistances = np.full(n, np.nan)
-    resistance_pct = np.full(n, np.nan)
-    hh_hl = np.full(n, np.nan)  # Higher highs higher lows indicator
-
-    for i in range(n):
-        if i < lookback:
-            continue  # Not enough history
-
-        win_lows = lows[i - lookback:i + 1]
-        win_highs = highs[i - lookback:i + 1]
-
-        # --- Compare last high to second last high and last low to second last low ---
-        if len(win_highs) >= 2 and len(win_lows) >= 2:
-            last_high = win_highs[-1]        # Last high in window
-            second_last_high = win_highs[-2] # Second last high in window
-            last_low = win_lows[-1]          # Last low in window  
-            second_last_low = win_lows[-2]   # Second last low in window
+    
+    # Initialize columns
+    result_df['swing_high'] = np.nan
+    result_df['swing_low'] = np.nan
+    result_df['swing_high_confirmed'] = False
+    result_df['swing_low_confirmed'] = False
+    result_df['swing_type'] = ''
+    result_df['swing_strength'] = 0  # How many bars it was the extreme
+    
+    threshold = threshold_percent / 100.0
+    min_price_distance = min_price_distance_pct / 100.0
+    
+    # Extract arrays
+    highs = df['high'].values
+    lows = df['low'].values
+    closes = df['close'].values
+    
+    # Track confirmed swings for spacing and price distance checks
+    confirmed_swing_highs = []  # (index, price, date)
+    confirmed_swing_lows = []   # (index, price, date)
+    
+    # Step 1: Find potential local extremes using look-back/look-ahead
+    potential_swing_points = []
+    
+    for i in range(lookback_window, n - lookahead_window):
+        current_high = highs[i]
+        current_low = lows[i]
+        
+        # Check if this is a local high
+        window_start = i - lookback_window
+        window_end = i + lookahead_window + 1
+        window_highs = highs[window_start:window_end]
+        window_lows = lows[window_start:window_end]
+        
+        # Count how many bars this point was the extreme (strength measure)
+        is_local_high = current_high == np.max(window_highs)
+        is_local_low = current_low == np.min(window_lows)
+        
+        if is_local_high:
+            # Calculate strength (how dominant this high is)
+            strength = np.sum(window_highs <= current_high)
+            potential_swing_points.append({
+                'index': i,
+                'type': 'high',
+                'price': current_high,
+                'strength': strength,
+                'confirmed': False
+            })
             
-            # Assign 1 if last high > second last high AND last low > second last low
-            if last_high > second_last_high and last_low > second_last_low:
-                hh_hl[i] = 1
-            else:
-                hh_hl[i] = 0
+        if is_local_low:
+            # Calculate strength (how dominant this low is)
+            strength = np.sum(window_lows >= current_low)
+            potential_swing_points.append({
+                'index': i,
+                'type': 'low', 
+                'price': current_low,
+                'strength': strength,
+                'confirmed': False
+            })
+    
+    # Step 2: Confirm swings using percentage reversal + additional filters
+    for i in range(n):
+        current_high = highs[i]
+        current_low = lows[i]
+        
+        # Check potential swing highs for confirmation
+        for swing_point in potential_swing_points:
+            if (swing_point['type'] == 'high' and 
+                swing_point['index'] < i and 
+                not swing_point['confirmed']):
+                
+                swing_idx = swing_point['index']
+                swing_price = swing_point['price']
+                
+                # 1. Percentage reversal check
+                drop_percent = (swing_price - current_low) / swing_price
+                
+                if drop_percent >= threshold:
+                    # 2. Time gap check
+                    time_gap_ok = True
+                    if confirmed_swing_highs:
+                        last_swing_idx = confirmed_swing_highs[-1][0]
+                        if swing_idx - last_swing_idx < min_time_gap:
+                            time_gap_ok = False
+                    
+                    # 3. Price distance check
+                    price_distance_ok = True
+                    if confirmed_swing_highs:
+                        last_swing_price = confirmed_swing_highs[-1][1]
+                        price_diff_pct = abs(swing_price - last_swing_price) / last_swing_price
+                        if price_diff_pct < min_price_distance:
+                            price_distance_ok = False
+                    
+                    # Confirm swing if all conditions met
+                    if time_gap_ok and price_distance_ok:
+                        swing_point['confirmed'] = True
+                        confirmed_swing_highs.append((swing_idx, swing_price, df.iloc[swing_idx].name))
+                        
+                        # Mark in dataframe
+                        result_df.loc[swing_idx, 'swing_high'] = swing_price
+                        result_df.loc[swing_idx, 'swing_high_confirmed'] = True
+                        result_df.loc[swing_idx, 'swing_strength'] = swing_point['strength']
+                        
+                        # Update swing type
+                        current_type = result_df.loc[swing_idx, 'swing_type']
+                        if current_type == 'L':
+                            result_df.loc[swing_idx, 'swing_type'] = 'HL'
+                        elif current_type == '':
+                            result_df.loc[swing_idx, 'swing_type'] = 'H'
+        
+        # Check potential swing lows for confirmation
+        for swing_point in potential_swing_points:
+            if (swing_point['type'] == 'low' and 
+                swing_point['index'] < i and 
+                not swing_point['confirmed']):
+                
+                swing_idx = swing_point['index']
+                swing_price = swing_point['price']
+                
+                # 1. Percentage reversal check
+                rally_percent = (current_high - swing_price) / swing_price
+                
+                if rally_percent >= threshold:
+                    # 2. Time gap check
+                    time_gap_ok = True
+                    if confirmed_swing_lows:
+                        last_swing_idx = confirmed_swing_lows[-1][0]
+                        if swing_idx - last_swing_idx < min_time_gap:
+                            time_gap_ok = False
+                    
+                    # 3. Price distance check
+                    price_distance_ok = True
+                    if confirmed_swing_lows:
+                        last_swing_price = confirmed_swing_lows[-1][1]
+                        price_diff_pct = abs(swing_price - last_swing_price) / last_swing_price
+                        if price_diff_pct < min_price_distance:
+                            price_distance_ok = False
+                    
+                    # Confirm swing if all conditions met
+                    if time_gap_ok and price_distance_ok:
+                        swing_point['confirmed'] = True
+                        confirmed_swing_lows.append((swing_idx, swing_price, df.iloc[swing_idx].name))
+                        
+                        # Mark in dataframe
+                        result_df.loc[swing_idx, 'swing_low'] = swing_price
+                        result_df.loc[swing_idx, 'swing_low_confirmed'] = True
+                        result_df.loc[swing_idx, 'swing_strength'] = swing_point['strength']
+                        
+                        # Update swing type
+                        current_type = result_df.loc[swing_idx, 'swing_type']
+                        if current_type == 'H':
+                            result_df.loc[swing_idx, 'swing_type'] = 'HL'
+                        elif current_type == '':
+                            result_df.loc[swing_idx, 'swing_type'] = 'L'
+    
+    return result_df
 
-        # --- Detect supports (local minima) ---
-        support_candidates = []
-        for j in range(2, len(win_lows) - 2):
-            if win_lows[j] < win_lows[j - 1] and win_lows[j] < win_lows[j + 1]:
-                val = win_lows[j]
-                touches = (np.abs(win_lows - val) / val < tolerance).sum()
-                if not any(abs(val - s[0]) / s[0] < tolerance for s in support_candidates):
-                    support_candidates.append((val, touches))
+def add_nearest_sr(df, 
+                           swing_threshold=12.0,
+                           lookback_window=3, 
+                           lookahead_window=0,
+                           min_time_gap=1, 
+                           min_price_distance_pct=5.0):
+    
+    # Step 1: Detect enhanced swing points
+    df_with_swings = detect_enhanced_swings(
+        df, 
+        threshold_percent=swing_threshold,
+        lookback_window=lookback_window,
+        lookahead_window=lookahead_window,
+        min_time_gap=min_time_gap,
+        min_price_distance_pct=min_price_distance_pct
+    )
+    
+    n = len(df_with_swings)
+    closes = df_with_swings['close'].values
+    
+    # Initialize result arrays
+    latest_high = np.full(n, np.nan)
+    second_latest_high = np.full(n, np.nan)
+    latest_low = np.full(n, np.nan)
+    second_latest_low = np.full(n, np.nan)
+    trend_up = np.full(n, 0, dtype=int)
+    nearest_support = np.full(n, np.nan)
+    support_distance_pct = np.full(n, np.nan)
+    nearest_resistance = np.full(n, np.nan)
+    resistance_distance_pct = np.full(n, np.nan)
+    
+    # Extract confirmed swing points
+    swing_highs = []  # (index, price)
+    swing_lows = []   # (index, price)
+    
+    for i in range(n):
+        if df_with_swings.loc[i, 'swing_high_confirmed']:
+            swing_highs.append((i, df_with_swings.loc[i, 'swing_high']))
+        if df_with_swings.loc[i, 'swing_low_confirmed']:
+            swing_lows.append((i, df_with_swings.loc[i, 'swing_low']))
+    
+    # Step 2: For each date, calculate swing-based levels and trend
+    for current_idx in range(n):
+        
+        # Find swing highs up to current date
+        valid_highs = [(idx, price) for idx, price in swing_highs if idx <= current_idx]
+        valid_highs.sort(key=lambda x: x[0], reverse=True)  # Most recent first
+        
+        # Find swing lows up to current date  
+        valid_lows = [(idx, price) for idx, price in swing_lows if idx <= current_idx]
+        valid_lows.sort(key=lambda x: x[0], reverse=True)  # Most recent first
+        
+        # Step 2.1: Get latest and second latest highs/lows
+        if len(valid_highs) >= 1:
+            latest_high[current_idx] = valid_highs[0][1]
+        if len(valid_highs) >= 2:
+            second_latest_high[current_idx] = valid_highs[1][1]
+            
+        if len(valid_lows) >= 1:
+            latest_low[current_idx] = valid_lows[0][1]
+        if len(valid_lows) >= 2:
+            second_latest_low[current_idx] = valid_lows[1][1]
+        
+        # Step 2.2: Determine trend direction
+        if (not np.isnan(latest_high[current_idx]) and 
+            not np.isnan(second_latest_high[current_idx]) and
+            not np.isnan(latest_low[current_idx]) and 
+            not np.isnan(second_latest_low[current_idx])):
+            
+            if (latest_high[current_idx] > second_latest_high[current_idx] and 
+                latest_low[current_idx] > second_latest_low[current_idx]):
+                trend_up[current_idx] = 1
+        
+        # Step 2.3: Combine all swing levels and find nearest support/resistance
+        all_levels = []
+        
+        # Add all swing highs up to current date
+        for idx, price in valid_highs:
+            all_levels.append(price)
+            
+        # Add all swing lows up to current date
+        for idx, price in valid_lows:
+            all_levels.append(price)
+        
+        if all_levels:
+            current_close = closes[current_idx]
+            
+            # Find nearest support (closest level below current close)
+            support_levels = [level for level in all_levels if level < current_close]
+            if support_levels:
+                nearest_support[current_idx] = max(support_levels)
+                support_distance_pct[current_idx] = ((current_close - nearest_support[current_idx]) / current_close) * 100
+            
+            # Find nearest resistance (closest level above current close)
+            resistance_levels = [level for level in all_levels if level > current_close]
+            if resistance_levels:
+                nearest_resistance[current_idx] = min(resistance_levels)
+                resistance_distance_pct[current_idx] = ((nearest_resistance[current_idx] - current_close) / current_close) * 100
+    
+    # Step 3: Add all calculated columns to the DataFrame
+    df_with_swings['latest_high'] = latest_high
+    df_with_swings['second_latest_high'] = second_latest_high
+    df_with_swings['latest_low'] = latest_low
+    df_with_swings['second_latest_low'] = second_latest_low
+    df_with_swings['trend_up'] = trend_up
+    df_with_swings['nearest_support'] = nearest_support
+    df_with_swings['support_pct'] = support_distance_pct      
+    df_with_swings['nearest_resistance'] = nearest_resistance
+    df_with_swings['resistance_pct'] = resistance_distance_pct
+    
+    return df_with_swings
 
-        # --- Detect resistances (local maxima) ---
-        resistance_candidates = []
-        for j in range(2, len(win_highs) - 2):
-            if win_highs[j] > win_highs[j - 1] and win_highs[j] > win_highs[j + 1]:
-                val = win_highs[j]
-                touches = (np.abs(win_highs - val) / val < tolerance).sum()
-                if not any(abs(val - r[0]) / r[0] < tolerance for r in resistance_candidates):
-                    resistance_candidates.append((val, touches))
 
-        all_levels = support_candidates + resistance_candidates
 
-        # Nearest support (below close)
-        below_close = [lvl for lvl in all_levels if lvl[0] < closes[i]]
-        if below_close:
-            nearest_below = max(below_close, key=lambda x: x[0])
-            nearest_supports[i] = nearest_below[0]
-            support_pct[i] = (closes[i] - nearest_below[0]) / closes[i] * 100
-        else:
-            # Fallback support (extrapolation)
-            if i > 0:
-                last_low = lows[i - 1]
-                cur_low = lows[i]
-                diff = last_low - cur_low
-                nearest_supports[i] = cur_low - diff
-                support_pct[i] = (closes[i] - nearest_supports[i]) / closes[i] * 100
 
-        # Nearest resistance (above close)
-        above_close = [lvl for lvl in all_levels if lvl[0] > closes[i]]
-        if above_close:
-            nearest_above = min(above_close, key=lambda x: x[0])
-            nearest_resistances[i] = nearest_above[0]
-            resistance_pct[i] = (nearest_above[0] - closes[i]) / closes[i] * 100
-        else:
-            # Fallback resistance (extrapolation)
-            if i > 0:
-                last_high = highs[i - 1]
-                cur_high = highs[i]
-                diff = cur_high - last_high
-                nearest_resistances[i] = cur_high + diff
-                resistance_pct[i] = (nearest_resistances[i] - closes[i]) / closes[i] * 100
 
-    df['nearest_support'] = nearest_supports
-    df['support_pct'] = support_pct
-    df['nearest_resistance'] = nearest_resistances
-    df['resistance_pct'] = resistance_pct
-    df['hh_hl'] = hh_hl
 
-    return df
+
+
+
 
 def remove_duplicates(levels, tolerance):
     """Remove duplicate levels that are too close to each other."""

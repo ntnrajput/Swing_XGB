@@ -72,7 +72,7 @@ FEATURE_COLUMNS = [
     'upper_shadow_to_range', 'lower_shadow_to_range', 'is_doji', 'is_hammer', 'is_shooting_star',
     'spinning_top', 'marubozu_bull', 'marubozu_bear', 'three_white_soldiers', 'three_black_crows',
     'morning_star', 'evening_star', 'bullish_harami', 'bearish_harami', 'pattern_strength',
-    'close_compared_to_previous', 'bb_position', 'support_pct', 'resistance_pct', 'sma20_50_cross_up',
+    'close_compared_to_previous', 'bb_position', 'support_pct', 'resistance_pct', 'sma20_50_cross_up', 'trend_up',
     
     # Original MACD Features
     'macd_line', 'macd_signal', 'macd_histogram', 'macd_line_roc_3', 'macd_line_roc_5', 'macd_line_roc_10',
